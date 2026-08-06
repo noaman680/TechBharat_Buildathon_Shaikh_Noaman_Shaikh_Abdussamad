@@ -1,7 +1,7 @@
 # 🧠 MeetMind — Agentic AI Meeting Assistant
 
-> **National Hackathon Project** | TechBharat Buildathon 2025
-> **Team:** Shaikh Noaman & Shaikh Abdussamad
+> **National Hackathon Project** | TechBharat Buildathon 2026
+> **Team:** Shaikh Noaman Shaikh Abdussamad
 
 MeetMind transforms raw meeting audio, video, or transcripts into **structured organizational intelligence** and **safely executes follow-up actions** — creating Jira tickets, Slack recaps, and calendar invites — but only after human approval.
 
