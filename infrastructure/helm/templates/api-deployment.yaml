@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meetmind-api
+spec:
+  replicas: {{ .Values.replicaCount.api }}
+  selector:
+    matchLabels: { app: meetmind-api }
+  template:
+    metadata:
+      labels: { app: meetmind-api }
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 8000
+          resources: {{ toYaml .Values.resources.api | nindent 12 }}
+          envFrom:
+            - secretRef: { name: meetmind-secrets }

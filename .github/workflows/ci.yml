@@ -1,0 +1,77 @@
+name: MeetMind CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: meetmind
+          POSTGRES_PASSWORD: meetmind
+          POSTGRES_DB: meetmind
+        ports: ["5432:5432"]
+      redis:
+        image: redis:7.2-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -e ".[dev]"
+      - name: Run unit tests
+        working-directory: backend
+        run: pytest tests/unit -v --cov=app --cov-report=xml
+      - name: Run integration tests
+        working-directory: backend
+        run: pytest tests/integration -v
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v1
+        with:
+          src: backend/app
+
+  build:
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ghcr.io/meetmind/api:${{ github.sha }}
+
+  deploy-staging:
+    needs: build
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to staging cluster
+        run: helm upgrade meetmind ./infrastructure/helm --set image.tag=${{ github.sha }}
+
+  deploy-prod:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to production
+        run: helm upgrade meetmind ./infrastructure/helm --set image.tag=${{ github.sha }} -f infrastructure/helm/values.prod.yaml
