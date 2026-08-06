@@ -144,8 +144,8 @@ Key variables:
 ## 👥 Team
 
 - **Shaikh Noaman** — AI/ML & LangGraph Architecture
-- **Shaikh Abdussamad** — Backend API & Integrations
+- **Shaikh Noaman** — Backend API & Integrations
 
 ---
 
-*Built for TechBharat Buildathon 2025*
+*Built for TechBharat Buildathon 2026*
