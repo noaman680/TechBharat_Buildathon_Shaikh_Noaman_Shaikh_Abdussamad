@@ -1,28 +1,65 @@
-"""Agent 12: Audit — record the full trace, results, and receipts for a meeting run."""
-from datetime import datetime, timezone
+"""Agent 12: Audit Finalization — persist audit trail and update meeting status."""
+import time
+import json
+import structlog
 
-from app.agents.state import MeetingState, ProcessingStatus
-from app.db import db
-from app.memory.memory_service import update_organizational_memory
+from app.agents.state import MeetingAgentState, AuditEntry
 
-
-async def audit_agent(state: MeetingState) -> MeetingState:
-    """
-    Persist the complete audit trail, mark the meeting complete, and (if any
-    items were approved) trigger the cross-meeting memory update so future
-    meetings can reference this one.
-    """
-    await db.audit_logs.bulk_insert(state["meeting_id"], state["audit_trail"])
-
-    if state.get("approved_items"):
-        await update_organizational_memory(state["meeting_id"], state)
-
-    await db.meetings.mark_complete(state["meeting_id"], processed_at=datetime.now(timezone.utc))
-
-    return {**state, "status": ProcessingStatus.COMPLETE}
+logger = structlog.get_logger()
 
 
-async def error_handler_node(state: MeetingState) -> MeetingState:
-    """Terminal node for unrecoverable errors — logs and marks the meeting failed."""
-    await db.meetings.mark_failed(state["meeting_id"], errors=state.get("errors", []))
-    return {**state, "status": ProcessingStatus.FAILED}
+async def audit_node(state: MeetingAgentState) -> dict:
+    """Persist final audit trail and update meeting status in database."""
+    start = time.perf_counter()
+
+    summary = {
+        "meeting_id": state["meeting_id"],
+        "phase": state.get("current_phase", "unknown"),
+        "action_items_extracted": len(state.get("action_items", [])),
+        "action_items_verified": len(state.get("verified_items", [])),
+        "action_items_approved": len(state.get("approved_items", [])),
+        "action_items_executed": sum(
+            1 for r in state.get("execution_results", []) if r.status == "success"
+        ),
+        "warnings": len(state.get("warnings", [])),
+        "errors": len(state.get("errors", [])),
+        "audit_entries": len(state.get("audit_log", [])),
+    }
+
+    logger.info("Meeting processing complete", **summary)
+
+    # Persist to database if available
+    try:
+        from app.db.repositories.meetings import MeetingRepository
+        repo = MeetingRepository()
+        await repo.update_status(state["meeting_id"], "complete", summary)
+        await repo.save_audit_log(state["meeting_id"], state.get("audit_log", []))
+    except Exception as e:
+        logger.warning("Failed to persist audit log", error=str(e))
+
+    # Store in vector memory
+    try:
+        from app.memory.memory_service import MemoryService
+        memory = MemoryService()
+        await memory.store_meeting_embedding(
+            meeting_id=state["meeting_id"],
+            org_id=state["org_id"],
+            summary=state.get("structured_report", {}).executive_summary if state.get("structured_report") else "",
+            items=state.get("approved_items", []),
+        )
+    except Exception as e:
+        logger.warning("Failed to store memory embedding", error=str(e))
+
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    final_audit = AuditEntry(
+        timestamp=__import__("datetime").datetime.utcnow().isoformat(),
+        agent="AuditAgent",
+        action="finalize",
+        output_summary=json.dumps(summary),
+        duration_ms=duration_ms,
+    )
+
+    return {
+        "current_phase": "complete",
+        "audit_log": [final_audit],
+    }

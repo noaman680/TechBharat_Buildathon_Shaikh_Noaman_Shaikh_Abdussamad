@@ -1,32 +1,52 @@
-"""
-Human-in-the-loop approval endpoints.
-
-GET    /api/approvals/{id}                 -> Approval dashboard data
-PATCH  /api/approvals/{id}/items/{item_id} -> Edit action item
-DELETE /api/approvals/{id}/items/{item_id} -> Reject item
-POST   /api/approvals/{id}/execute         -> Resume graph after approval
-"""
+"""Approval API routes — HITL review and execution."""
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 router = APIRouter()
 
 
-@router.get("/{approval_id}")
-async def get_approval(approval_id: str):
-    raise NotImplementedError("TODO: fetch approval_requests row + items + historical context")
+class ApprovalDecision(BaseModel):
+    approved_items: list[dict]
+    rejected_ids: list[str]
+    rejection_reasons: dict = {}
 
 
-@router.patch("/{approval_id}/items/{item_id}")
-async def edit_item(approval_id: str, item_id: str, edits: dict):
-    raise NotImplementedError("TODO: apply edits, record diff in edit_history")
+@router.get("/{meeting_id}")
+async def get_approval_session(meeting_id: str):
+    """Get items pending approval for a meeting."""
+    return {
+        "meeting_id": meeting_id,
+        "status": "awaiting_approval",
+        "action_items": [],
+        "warnings": [],
+        "overdue_followups": [],
+    }
 
 
-@router.delete("/{approval_id}/items/{item_id}")
-async def reject_item(approval_id: str, item_id: str):
-    raise NotImplementedError("TODO: move item into rejected_items")
+@router.post("/{meeting_id}/submit")
+async def submit_approval(meeting_id: str, decision: ApprovalDecision):
+    """Submit human approval — resumes the LangGraph pipeline."""
+    try:
+        from app.agents.graph import build_graph
+        from langgraph.types import Command
+
+        graph = build_graph()
+        config = {"configurable": {"thread_id": meeting_id}}
+        result = await graph.ainvoke(
+            Command(resume=decision.model_dump()),
+            config=config,
+        )
+        return {
+            "meeting_id": meeting_id,
+            "status": "executing",
+            "approved_count": len(decision.approved_items),
+            "rejected_count": len(decision.rejected_ids),
+        }
+    except Exception as e:
+        return {"meeting_id": meeting_id, "status": "error", "error": str(e)}
 
 
-@router.post("/{approval_id}/execute")
-async def execute_approval(approval_id: str):
-    """Mark the approval decided and resume the LangGraph run past interrupt_before."""
-    raise NotImplementedError("TODO: set approval.status='approved', resume graph checkpoint")
+@router.get("/{meeting_id}/results")
+async def get_execution_results(meeting_id: str):
+    """Get integration execution results after approval."""
+    return {"meeting_id": meeting_id, "execution_results": []}

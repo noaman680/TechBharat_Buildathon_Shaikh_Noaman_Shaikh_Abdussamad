@@ -1,24 +1,54 @@
-"""Plugin-based integration system — easy to add new external tools."""
-from typing import Dict
-
-from app.agents.state import ActionItem
-from app.integrations.base import BaseIntegration, IntegrationError
+"""Integration registry — manages all available integrations."""
+from typing import Optional
+from app.integrations.base import BaseIntegration
 
 
 class IntegrationRegistry:
-    _integrations: Dict[str, type] = {}
+    _integrations: dict[str, type[BaseIntegration]] = {}
 
-    @classmethod
-    def register(cls, name: str):
-        def decorator(integration_class):
-            cls._integrations[name] = integration_class
-            return integration_class
-        return decorator
+    def __init__(self):
+        self._load_integrations()
 
-    @classmethod
-    async def execute(cls, item: ActionItem, config: dict) -> dict:
-        system = config["system_type"]
-        integration = cls._integrations.get(system)
-        if not integration:
-            raise IntegrationError(f"No integration registered for {system}")
-        return await integration(config).create_task(item)
+    def _load_integrations(self):
+        try:
+            from app.integrations.jira import JiraIntegration
+            self._integrations["jira"] = JiraIntegration
+        except Exception:
+            pass
+        try:
+            from app.integrations.github import GitHubIntegration
+            self._integrations["github"] = GitHubIntegration
+        except Exception:
+            pass
+        try:
+            from app.integrations.slack import SlackIntegration
+            self._integrations["slack"] = SlackIntegration
+        except Exception:
+            pass
+        try:
+            from app.integrations.notion import NotionIntegration
+            self._integrations["notion"] = NotionIntegration
+        except Exception:
+            pass
+        try:
+            from app.integrations.asana import AsanaIntegration
+            self._integrations["asana"] = AsanaIntegration
+        except Exception:
+            pass
+        try:
+            from app.integrations.google_calendar import GoogleCalendarIntegration
+            self._integrations["google_calendar"] = GoogleCalendarIntegration
+        except Exception:
+            pass
+        try:
+            from app.integrations.linear import LinearIntegration
+            self._integrations["linear"] = LinearIntegration
+        except Exception:
+            pass
+
+    def get(self, name: str) -> Optional[BaseIntegration]:
+        cls = self._integrations.get(name)
+        return cls() if cls else None
+
+    def list_available(self) -> list[str]:
+        return list(self._integrations.keys())

@@ -1,0 +1,16 @@
+[00:00:10] Sarah Patel: Thanks everyone for joining the API design review. We have three proposals on the table today.
+[00:00:25] James Wilson: Before we start, we've decided to drop the XML support entirely — REST + JSON only going forward. That was finalized last week.
+[00:00:38] Sarah Patel: Right. So the three questions are: versioning strategy, auth mechanism, and rate limiting approach.
+[00:01:05] Maya Rodriguez: For versioning, I propose URL versioning — /api/v1, /api/v2. Header versioning is too complex.
+[00:01:20] James Wilson: I agree with URL versioning. Let's finalize that — URL versioning is our approach.
+[00:01:35] Sarah Patel: Agreed. Maya, can you update the API spec to reflect URL versioning? We need it before the next sprint.
+[00:01:45] Maya Rodriguez: Sure, I'll update the API spec by next Tuesday.
+[00:02:00] James Wilson: On auth — JWT with refresh tokens seems like the right call. OAuth2 is overkill for our internal tools.
+[00:02:15] Sarah Patel: Let's go with JWT. James, will you write up the token management docs?
+[00:02:22] James Wilson: I can have that done by Thursday.
+[00:02:35] Raj Mehta: For rate limiting — 100 requests per minute per API key seems reasonable. We can revisit when we have more data.
+[00:02:48] Sarah Patel: Agreed, 100 rpm it is. Raj, can you implement the rate limiter in the gateway?
+[00:02:56] Raj Mehta: I'll have the rate limiter implemented by end of next week.
+[00:03:10] Sarah Patel: One open question — do we need WebSocket support? Nobody has answered that from the product team.
+[00:03:25] James Wilson: That's a risk actually — if we design without WebSocket and product decides they need it later, it'll be a significant refactor.
+[00:03:40] Sarah Patel: Fair point. I'll raise it with the product team and get an answer before Friday.

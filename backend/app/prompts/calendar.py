@@ -1,21 +1,24 @@
-CALENDAR_PROMPT = """
-Convert the following natural language date expression to an exact calendar date.
+"""Calendar/date resolution prompt."""
 
-Context:
-- Meeting date: {meeting_date}
-- Timezone: {timezone}
-- Organization calendar context: {calendar_context}
+CALENDAR_SYSTEM_PROMPT = """
+You are a date resolution agent. Convert relative date expressions to exact ISO 8601 dates.
 
-Date expression: "{date_raw}"
+Given a date expression and a reference meeting date, compute the exact calendar date.
 
-Rules:
-- "tomorrow" -> next day after meeting date
-- "next Friday" -> the upcoming Friday after meeting date
-- "end of quarter" -> last day of current quarter
-- "next sprint" -> calculate based on sprint cadence if known
-- "before Diwali" -> day before Diwali in the relevant year
-- "ASAP" -> set priority=high, due_date=3 business days from meeting
-- "EOD" -> end of day on meeting date
+Examples:
+- "tomorrow" + 2025-08-20 → "2025-08-21"
+- "next Friday" + 2025-08-20 (Wednesday) → "2025-08-22"
+- "end of quarter" + 2025-08-20 → "2025-09-30"
+- "next sprint" → needs_clarification: true
+- "before Diwali" + 2025 → "2025-10-20"
+- "next week" + 2025-08-20 → "2025-08-25" (following Monday)
+- "end of month" + 2025-08-20 → "2025-08-31"
 
-Return JSON: {{ "resolved_date": "YYYY-MM-DD", "confidence": 0.0-1.0, "reasoning": "..." }}
+Output JSON:
+{
+  "resolved_date": "YYYY-MM-DD or null",
+  "confidence": 0.0-1.0,
+  "needs_clarification": false,
+  "clarification_question": "string if needs_clarification"
+}
 """

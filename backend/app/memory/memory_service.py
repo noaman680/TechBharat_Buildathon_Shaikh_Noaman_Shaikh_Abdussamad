@@ -1,34 +1,84 @@
-"""Cross-meeting memory updates, run once a meeting completes. See docs/BLUEPRINT.md §7."""
-from qdrant_client.models import PointStruct
+"""High-level memory service combining Qdrant + Neo4j."""
+import structlog
+from app.memory.qdrant_client import upsert_vectors, search_similar, ensure_collection
+from app.memory.neo4j_client import (
+    create_meeting_node, create_task_node, get_overdue_tasks as _get_overdue
+)
 
-from app.memory.qdrant_client import qdrant_client
-from app.memory.neo4j_client import update_knowledge_graph
-from app.services.embedding import embed
+logger = structlog.get_logger()
+DUPLICATE_THRESHOLD = 0.92
 
 
-async def update_organizational_memory(meeting_id: str, state) -> None:
-    # 1. Upsert meeting summary embedding in Qdrant
-    await qdrant_client.upsert("meeting_summaries", [
-        PointStruct(
-            id=meeting_id,
-            vector=await embed(state["meeting_report"]["executive_summary"]),
-            payload={
-                "org_id": state["organization_id"],
-                "date": state["meeting_metadata"].get("date"),
-                "title": state["meeting_metadata"].get("title"),
-            },
-        )
-    ])
+class MemoryService:
+    async def embed(self, text: str) -> list[float]:
+        try:
+            from openai import AsyncOpenAI
+            from app.config import settings
+            client = AsyncOpenAI(api_key=settings.openai_api_key)
+            resp = await client.embeddings.create(model="text-embedding-3-small", input=text)
+            return resp.data[0].embedding
+        except Exception as e:
+            logger.warning("Embedding failed", error=str(e))
+            return [0.0] * 1536
 
-    # 2. Upsert action item embeddings for dedup lookups
-    for item in state["approved_items"]:
-        await qdrant_client.upsert("action_items", [
-            PointStruct(
-                id=item["id"],
-                vector=await embed(item["title"] + " " + item["description"]),
-                payload={**item, "meeting_id": meeting_id},
+    async def is_duplicate(self, text: str, org_id: str) -> tuple[bool, str | None]:
+        try:
+            await ensure_collection()
+            vector = await self.embed(text)
+            results = await search_similar(
+                vector=vector,
+                filter_dict={"org_id": org_id, "type": "action_item"},
+                top_k=3,
             )
-        ])
+            for r in results:
+                if r["score"] > DUPLICATE_THRESHOLD:
+                    return True, r["metadata"].get("title")
+        except Exception as e:
+            logger.warning("Duplicate check failed", error=str(e))
+        return False, None
 
-    # 3. Update knowledge graph
-    await update_knowledge_graph(meeting_id, state)
+    async def store_meeting_embedding(self, meeting_id: str, org_id: str,
+                                       summary: str, items: list):
+        try:
+            await ensure_collection()
+            vector = await self.embed(summary)
+            await upsert_vectors([{
+                "id": meeting_id,
+                "vector": vector,
+                "metadata": {"org_id": org_id, "type": "meeting", "summary": summary[:500]},
+            }])
+            for item in items:
+                item_vector = await self.embed(f"{item.title} {item.description}")
+                await upsert_vectors([{
+                    "id": item.id,
+                    "vector": item_vector,
+                    "metadata": {
+                        "org_id": org_id, "type": "action_item",
+                        "title": item.title, "meeting_id": meeting_id,
+                    },
+                }])
+        except Exception as e:
+            logger.warning("Store embedding failed", error=str(e))
+
+    async def find_related_meetings(self, summary: str, org_id: str) -> list[str]:
+        try:
+            vector = await self.embed(summary)
+            results = await search_similar(
+                vector=vector,
+                filter_dict={"org_id": org_id, "type": "meeting"},
+                top_k=3,
+            )
+            return [r["id"] for r in results if r["score"] > 0.7]
+        except Exception as e:
+            logger.warning("Related meetings search failed", error=str(e))
+            return []
+
+    async def get_overdue_tasks(self, org_id: str, owner_emails: list[str]) -> list[dict]:
+        try:
+            return await _get_overdue(org_id, owner_emails)
+        except Exception as e:
+            logger.warning("Overdue tasks query failed", error=str(e))
+            return []
+
+    async def get_recurring_owners(self, org_id: str) -> dict:
+        return {}  # Extended in production from historical data

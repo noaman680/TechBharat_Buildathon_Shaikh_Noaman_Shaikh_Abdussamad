@@ -1,29 +1,53 @@
-image:
-  repository: ghcr.io/meetmind/api
-  tag: latest
-  pullPolicy: IfNotPresent
-
 replicaCount:
   api: 2
-  worker: 2
+  worker: 3
+  frontend: 1
+
+image:
+  api:
+    repository: gcr.io/YOUR_PROJECT/meetmind-api
+    tag: latest
+    pullPolicy: Always
+  frontend:
+    repository: gcr.io/YOUR_PROJECT/meetmind-frontend
+    tag: latest
+
+service:
+  api:
+    type: ClusterIP
+    port: 8000
+  frontend:
+    type: LoadBalancer
+    port: 80
+
+ingress:
+  enabled: true
+  host: meetmind.yourcompany.com
+
+postgresql:
+  enabled: true
+  auth:
+    database: meetmind
+    username: meetmind
+    password: changeme
+
+redis:
+  enabled: true
+  auth:
+    enabled: false
 
 resources:
   api:
-    requests: { cpu: "500m", memory: "512Mi" }
-    limits: { cpu: "2", memory: "2Gi" }
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
   worker:
-    requests: { cpu: "1", memory: "2Gi" }
-    limits: { cpu: "4", memory: "8Gi" }
-
-autoscaling:
-  worker:
-    minReplicas: 2
-    maxReplicas: 20
-    targetQueueLength: 5
-
-postgres:
-  enabled: true
-qdrant:
-  enabled: true
-neo4j:
-  enabled: true
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+    limits:
+      cpu: "4000m"
+      memory: "8Gi"

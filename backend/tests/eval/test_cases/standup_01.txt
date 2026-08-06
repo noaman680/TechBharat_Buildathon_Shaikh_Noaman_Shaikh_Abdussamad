@@ -1,0 +1,12 @@
+[00:00:05] Alice Chen: Good morning everyone. Quick standup — let's go round.
+[00:00:12] Alice Chen: I finished the authentication module yesterday. Today I'm working on the user profile API. No blockers.
+[00:00:28] Bob Kumar: I reviewed Alice's PR — looks good, I'll merge it after this call. I'm also going to fix the login redirect bug by end of day today.
+[00:00:45] Priya Shah: I'm still working on the mobile UI. I'll have a design review ready by next Wednesday. I need the API endpoints from Alice before I can finish.
+[00:01:02] Alice Chen: I'll send you the endpoint docs by tomorrow afternoon, Priya.
+[00:01:10] Charlie: DevOps update — I'm going to set up the staging environment before Friday. Also, we decided last week to move to Kubernetes — I'll have the migration plan ready by Monday.
+[00:01:28] Alice Chen: Great. Any blockers?
+[00:01:33] Bob Kumar: One thing — we're waiting on security sign-off for the OAuth integration. That might delay the release.
+[00:01:42] Alice Chen: Okay, I'll follow up with the security team today.
+[00:01:50] Priya Shah: I also need someone to review the accessibility requirements doc I sent last Thursday.
+[00:01:58] Bob Kumar: I'll review your accessibility doc by end of this week, Priya.
+[00:02:05] Alice Chen: Perfect. Let's wrap up. Remember the sprint review is on Friday at 3pm.

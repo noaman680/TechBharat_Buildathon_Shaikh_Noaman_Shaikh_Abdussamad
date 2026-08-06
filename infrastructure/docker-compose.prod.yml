@@ -1,24 +1,31 @@
 version: "3.9"
-# Production overrides — use alongside docker-compose.yml:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-services:
-  api:
-    restart: always
-    deploy:
-      replicas: 3
-    environment:
-      - ENV=production
+# Production overrides — use with:
+# docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
-  worker:
-    restart: always
+services:
+  backend:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    environment:
+      DEBUG: "false"
     deploy:
-      replicas: 4
+      replicas: 2
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
 
   frontend:
-    restart: always
+    environment:
+      NODE_ENV: production
+
+  worker-llm:
+    deploy:
+      replicas: 3
 
   postgres:
-    restart: always
-
-  redis:
-    restart: always
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+    deploy:
+      resources:
+        limits:
+          memory: 4G

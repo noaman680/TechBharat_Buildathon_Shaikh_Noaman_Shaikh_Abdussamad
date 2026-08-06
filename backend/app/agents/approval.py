@@ -1,52 +1,69 @@
-"""Agent 10: Approval — human-in-the-loop gate before any external action is taken."""
-from app.agents.state import MeetingState, ProcessingStatus
-from app.db import db
-from app.services.notification import notify_approver
+"""Agent 10: Human-in-the-Loop approval checkpoint."""
+import time
+import structlog
+from langgraph.types import interrupt
+
+from app.agents.state import MeetingAgentState, ActionItem, AuditEntry
+
+logger = structlog.get_logger()
 
 
-async def approval_agent(state: MeetingState) -> MeetingState:
+async def approval_node(state: MeetingAgentState) -> dict:
     """
-    This node is interrupted before execution (LangGraph interrupt_before).
-
-    Flow:
-    1. Create an approval request in the DB.
-    2. Send notification (email + Slack).
-    3. Return — LangGraph suspends the graph.
-    4. Human reviews the dashboard and approves/edits/rejects items.
-    5. Human clicks "Execute" -> resumes the graph via the API.
-    6. Graph reads updated state from the checkpoint.
+    HITL checkpoint — execution pauses here.
+    LangGraph persists state and returns to caller.
+    Graph resumes when human submits approval via API.
     """
-    if state.get("approval_request_id"):
-        approval = await db.approvals.get(state["approval_request_id"])
+    start = time.perf_counter()
+    items = state["verified_items"]
 
-        if approval.status == "approved":
-            return {
-                **state,
-                "approved_items": approval.approved_items,
-                "rejected_items": approval.rejected_items,
-                "edited_items": approval.edited_items,
-            }
-        elif approval.status == "pending":
-            return {**state, "status": "awaiting_approval"}
-
-    approval_id = await db.approvals.create({
+    # Build approval payload shown to human
+    approval_payload = {
         "meeting_id": state["meeting_id"],
-        "items": state["resolved_items"],
-        "report": state["meeting_report"],
-        "historical_context": state["historical_context"],
-        "created_by": state["submitted_by"],
-        "status": "pending",
-    })
+        "action_items": [item.model_dump() for item in items],
+        "structured_report": state.get("structured_report", {}).model_dump() if state.get("structured_report") else {},
+        "warnings": state.get("warnings", []),
+        "overdue_followups": state.get("overdue_followups", []),
+        "related_meetings": state.get("related_meetings", []),
+        "total_items": len(items),
+        "high_confidence_count": sum(1 for i in items if i.confidence >= 0.8),
+    }
 
-    await notify_approver(
-        meeting_id=state["meeting_id"],
-        approval_id=approval_id,
-        submitted_by=state["submitted_by"],
-        item_count=len(state["resolved_items"]),
+    logger.info("Awaiting human approval", meeting_id=state["meeting_id"], items=len(items))
+
+    # This raises GraphInterrupt — graph pauses, state is checkpointed
+    human_decision = interrupt(approval_payload)
+
+    # ── Resumed after human submits decision ──────────────────────────────────
+    approved_raw = human_decision.get("approved_items", [])
+    rejected_ids = set(human_decision.get("rejected_ids", []))
+
+    # Apply human edits to action items
+    approved_items = []
+    for item_data in approved_raw:
+        item = ActionItem(**item_data)
+        item.status = "approved"
+        approved_items.append(item)
+
+    rejected_items = [i for i in items if i.id in rejected_ids]
+    for item in rejected_items:
+        item.status = "rejected"
+        item.rejection_reason = human_decision.get("rejection_reasons", {}).get(item.id, "Rejected by user")
+
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    audit = AuditEntry(
+        timestamp=__import__("datetime").datetime.utcnow().isoformat(),
+        agent="ApprovalAgent",
+        action="human_review",
+        input_summary=f"presented={len(items)} items",
+        output_summary=f"approved={len(approved_items)}, rejected={len(rejected_items)}",
+        reasoning="Human reviewed and approved/rejected action items",
+        duration_ms=duration_ms,
     )
 
     return {
-        **state,
-        "approval_request_id": approval_id,
-        "status": ProcessingStatus.AWAITING_APPROVAL,
+        "approved_items": approved_items,
+        "rejected_items": rejected_items,
+        "current_phase": "approved",
+        "audit_log": [audit],
     }

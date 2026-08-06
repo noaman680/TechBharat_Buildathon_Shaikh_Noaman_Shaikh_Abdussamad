@@ -2,16 +2,17 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+# System deps for audio processing
+RUN apt-get update && apt-get install -y --no-install-recommends     ffmpeg libsndfile1 git curl build-essential     && rm -rf /var/lib/apt/lists/*
 
+# Install Python deps
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e ".[dev]"
 
-COPY . .
+# Copy source
+COPY app/ ./app/
+COPY tests/ ./tests/
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

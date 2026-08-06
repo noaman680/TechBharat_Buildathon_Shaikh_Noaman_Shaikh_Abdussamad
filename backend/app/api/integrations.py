@@ -1,32 +1,30 @@
-"""
-Integration configuration endpoints.
-
-GET    /api/integrations                 -> List configured integrations
-POST   /api/integrations                 -> Add new integration
-POST   /api/integrations/{id}/test       -> Test connection
-GET    /api/integrations/{id}/preview/{item_id} -> Preview exact outbound payload
-"""
+"""Integration management routes."""
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 router = APIRouter()
 
 
-@router.get("")
+class IntegrationConfig(BaseModel):
+    integration: str
+    config: dict
+
+
+@router.get("/available")
 async def list_integrations():
-    raise NotImplementedError("TODO: list integrations for the current org")
+    """List all supported integrations."""
+    from app.integrations.registry import IntegrationRegistry
+    registry = IntegrationRegistry()
+    return {"integrations": registry.list_available()}
 
 
-@router.post("")
-async def add_integration(config: dict):
-    raise NotImplementedError("TODO: validate + store integration config (secrets in Vault)")
-
-
-@router.post("/{integration_id}/test")
-async def test_integration(integration_id: str):
-    raise NotImplementedError("TODO: make a lightweight auth-check call to the external system")
-
-
-@router.get("/{integration_id}/preview/{item_id}")
-async def preview_payload(integration_id: str, item_id: str):
-    """Show the exact API payload that would be sent — required before any execute."""
-    raise NotImplementedError("TODO: build payload via IntegrationRegistry without sending it")
+@router.post("/test")
+async def test_integration(body: IntegrationConfig):
+    """Test integration credentials."""
+    from app.integrations.registry import IntegrationRegistry
+    registry = IntegrationRegistry()
+    integration = registry.get(body.integration)
+    if not integration:
+        return {"success": False, "error": f"Integration '{body.integration}' not found"}
+    valid = await integration.validate_credentials(body.config)
+    return {"success": valid, "integration": body.integration}

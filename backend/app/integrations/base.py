@@ -1,18 +1,30 @@
-"""Base class every external-system integration implements."""
+"""Base integration interface."""
 from abc import ABC, abstractmethod
+from typing import Optional
+from pydantic import BaseModel
 
-from app.agents.state import ActionItem
 
-
-class IntegrationError(Exception):
-    """Raised when an external system call fails in a handled way."""
+class IntegrationResult(BaseModel):
+    success: bool
+    external_id: Optional[str] = None
+    external_url: Optional[str] = None
+    payload_sent: dict = {}
+    response: dict = {}
+    error: Optional[str] = None
 
 
 class BaseIntegration(ABC):
-    def __init__(self, config: dict):
-        self.config = config
+    name: str
 
     @abstractmethod
-    async def create_task(self, item: ActionItem) -> dict:
-        """Create a task/issue in the external system. Returns external_id + external_url."""
-        raise NotImplementedError
+    async def create_task(self, item, config: dict) -> IntegrationResult:
+        """Create a task in the external system."""
+        pass
+
+    @abstractmethod
+    async def check_existing(self, fingerprint: str, config: dict) -> Optional[str]:
+        """Check if task already exists (idempotency). Returns external ID or None."""
+        pass
+
+    async def validate_credentials(self, config: dict) -> bool:
+        return True

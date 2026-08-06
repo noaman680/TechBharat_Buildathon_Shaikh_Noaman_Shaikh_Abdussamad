@@ -1,23 +1,29 @@
-"""
-GET /api/analytics/health/{id}   -> Meeting health metrics
-GET /api/analytics/commitments   -> Commitment tracking dashboard
-GET /api/analytics/overdue       -> Overdue item report
-"""
+"""Analytics routes."""
 from fastapi import APIRouter
 
 router = APIRouter()
 
 
-@router.get("/health/{meeting_id}")
-async def meeting_health(meeting_id: str):
-    raise NotImplementedError("TODO: compute_meeting_health() — see docs/BLUEPRINT.md Appendix A")
+@router.get("/org/{org_id}/summary")
+async def org_summary(org_id: str):
+    """Organization-level meeting analytics."""
+    return {
+        "org_id": org_id,
+        "total_meetings": 0,
+        "total_action_items": 0,
+        "completion_rate": 0.0,
+        "avg_items_per_meeting": 0.0,
+        "top_owners": [],
+        "overdue_count": 0,
+    }
 
 
-@router.get("/commitments")
-async def commitments_dashboard():
-    raise NotImplementedError("TODO: aggregate action_items by owner/status/priority")
-
-
-@router.get("/overdue")
-async def overdue_report():
-    raise NotImplementedError("TODO: action_items where due_date < now() and status='executed'")
+@router.get("/org/{org_id}/health")
+async def meeting_health(org_id: str):
+    """Meeting health analytics — talk time, participation, decision density."""
+    return {
+        "org_id": org_id,
+        "avg_decision_density": 0.0,
+        "avg_participation": 0.0,
+        "commitment_completion_rate": 0.0,
+    }

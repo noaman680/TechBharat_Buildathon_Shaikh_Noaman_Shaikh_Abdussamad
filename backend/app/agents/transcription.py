@@ -1,39 +1,92 @@
-"""Agent 2: Transcription — convert audio/video into timestamped text."""
-from app.agents.state import MeetingState
-from app.services.transcription import whisper_client
-from app.services.audio import extract_audio
-from app.services.language import handle_code_switched_transcript
-from app.utils.audit import build_audit_entry
-from app.utils.transcript import build_raw_transcript
+"""Agent 2: Audio/Video Transcription using OpenAI Whisper."""
+import time
+from pathlib import Path
+from typing import Optional
+import structlog
+
+from app.agents.state import MeetingAgentState, TranscriptSegment, AuditEntry
+
+logger = structlog.get_logger()
 
 
-async def transcription_agent(state: MeetingState) -> MeetingState:
-    """
-    Uses Whisper v3-large for:
-    - Multi-language transcription (including code-switched Hindi+English)
-    - Word-level timestamps
-    - Confidence scores per segment
-    - Noise handling
-    """
-    audio_path = await extract_audio(state["raw_input_path"])
+def format_timestamp(seconds: float) -> str:
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
 
-    result = await whisper_client.transcribe(
-        audio_path,
-        model="whisper-1",
-        response_format="verbose_json",
-        timestamp_granularities=["word", "segment"],
-        language=None,  # Auto-detect
+
+def segments_to_raw(segments: list[dict]) -> str:
+    lines = []
+    for seg in segments:
+        ts = format_timestamp(seg["start"])
+        lines.append(f"[{ts}] {seg['text'].strip()}")
+    return "\n".join(lines)
+
+
+async def transcription_node(state: MeetingAgentState) -> dict:
+    """Transcribe audio/video file to text using Whisper large-v3."""
+    start = time.perf_counter()
+    path = state["raw_input_path"]
+
+    try:
+        import whisper
+        import torch
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info("Loading Whisper model", device=device)
+
+        model = whisper.load_model("large-v3", device=device)
+        result = model.transcribe(
+            path,
+            language=None,
+            word_timestamps=True,
+            task="transcribe",
+            verbose=False,
+        )
+
+        segments = [
+            TranscriptSegment(
+                speaker_id="UNKNOWN",
+                text=seg["text"].strip(),
+                start_time=seg["start"],
+                end_time=seg["end"],
+                timestamp_label=format_timestamp(seg["start"]),
+            )
+            for seg in result["segments"]
+        ]
+
+        transcript_raw = segments_to_raw(result["segments"])
+        language = result.get("language", "en")
+
+    except ImportError:
+        logger.warning("Whisper not installed — using mock transcription")
+        transcript_raw = "[00:00:00] Mock transcript — install openai-whisper for real transcription."
+        segments = [
+            TranscriptSegment(
+                speaker_id="SPEAKER_00",
+                text="Mock transcript",
+                start_time=0.0,
+                end_time=5.0,
+                timestamp_label="00:00:00",
+            )
+        ]
+        language = "en"
+
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    audit = AuditEntry(
+        timestamp=__import__("datetime").datetime.utcnow().isoformat(),
+        agent="TranscriptionAgent",
+        action="whisper_transcribe",
+        input_summary=f"file={path}",
+        output_summary=f"segments={len(segments)}, lang={language}",
+        duration_ms=duration_ms,
     )
 
-    # Handle code-switched languages (Hindi-English mixing) — see Appendix B
-    if result.language in ["hi", "mr", "ta", "te", "kn"]:
-        result = await handle_code_switched_transcript(result)
-
-    raw_transcript = build_raw_transcript(result)
-    audit_entry = build_audit_entry("transcription_agent", result)
-
     return {
-        **state,
-        "transcript_raw": raw_transcript,
-        "audit_trail": state["audit_trail"] + [audit_entry],
+        "transcript_raw": transcript_raw,
+        "transcript_segments": segments,
+        "language_detected": language,
+        "current_phase": "transcribed",
+        "audit_log": [audit],
     }

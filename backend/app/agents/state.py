@@ -1,117 +1,124 @@
-"""
-MeetingState — the single shared state object threaded through every
-node of the LangGraph pipeline. See docs/BLUEPRINT.md §4 for design notes.
-"""
-from typing import TypedDict, List, Optional, Annotated
-from langgraph.graph import add_messages
-from enum import Enum
+"""LangGraph state definition for the MeetMind agent pipeline."""
+from __future__ import annotations
+import operator
+from typing import TypedDict, Annotated, Optional, Literal, Any
+from pydantic import BaseModel, Field
+import uuid
 
 
-class ProcessingStatus(str, Enum):
-    PENDING = "pending"
-    TRANSCRIBING = "transcribing"
-    ANALYZING = "analyzing"
-    EXTRACTING = "extracting"
-    VERIFYING = "verifying"
-    RESOLVING = "resolving"
-    AWAITING_APPROVAL = "awaiting_approval"
-    EXECUTING = "executing"
-    COMPLETE = "complete"
-    FAILED = "failed"
+class Speaker(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    label: str
+    resolved_name: Optional[str] = None
+    email: Optional[str] = None
+    confidence: float = 0.0
 
 
-class SpeakerTurn(TypedDict):
+class TranscriptSegment(BaseModel):
     speaker_id: str
-    speaker_name: Optional[str]
-    start_time: float       # seconds from start
-    end_time: float
     text: str
-    confidence: float
-    language: str
+    start_time: float
+    end_time: float
+    timestamp_label: str
 
 
-class ActionItem(TypedDict):
-    id: str
+class ActionItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
+    description: str = ""
+    owner_raw: str
+    owner_resolved: Optional[Speaker] = None
+    owner_confidence: float = 0.0
+    due_date_raw: str = ""
+    due_date_resolved: Optional[str] = None
+    priority: Literal["critical", "high", "medium", "low"] = "medium"
+    confidence: float = 0.0
+    evidence_timestamp: str = ""
+    evidence_quote: str = ""
+    meeting_section: str = ""
+    dependencies: list[str] = Field(default_factory=list)
+    fingerprint: str = ""
+    status: Literal["pending", "approved", "rejected", "executed"] = "pending"
+    target_integration: str = "jira"
+    external_ref: Optional[dict] = None
+
+
+class Decision(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     description: str
-    owner_raw: str                     # "Priya", "the dev team"
-    owner_resolved: Optional[str]      # "Priya Shah"
-    owner_email: Optional[str]         # "priya@company.com"
-    due_date_raw: str                  # "next Friday"
-    due_date_resolved: Optional[str]   # "2025-08-29"
-    priority: str                      # high/medium/low
-    confidence_score: float            # 0.0 - 1.0
-    evidence_quote: str                # exact transcript text
-    evidence_timestamp: float
-    meeting_section: str
-    dependencies: List[str]
-    status: str                        # pending/approved/rejected/executed
-    fingerprint: str                   # for deduplication
+    made_by: list[str] = Field(default_factory=list)
+    timestamp: str = ""
+    confidence: float = 0.0
 
 
-class MeetingReport(TypedDict):
-    executive_summary: str
-    decisions: List[dict]
-    open_questions: List[dict]
-    risks: List[dict]
-    dependencies: List[dict]
-    discussion_topics: List[dict]
-    key_insights: List[dict]
-    follow_ups: List[dict]
+class Risk(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    description: str
+    severity: Literal["critical", "high", "medium", "low"] = "medium"
+    owner: Optional[str] = None
 
 
-class AuditEntry(TypedDict):
+class StructuredReport(BaseModel):
+    executive_summary: str = ""
+    decisions: list[Decision] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+    risks: list[Risk] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    discussion_topics: list[str] = Field(default_factory=list)
+    key_insights: list[str] = Field(default_factory=list)
+    follow_ups: list[str] = Field(default_factory=list)
+
+
+class ExecutionResult(BaseModel):
+    action_item_id: str
+    integration: str
+    status: Literal["success", "failed", "skipped"]
+    external_id: Optional[str] = None
+    external_url: Optional[str] = None
+    request_payload: Optional[dict] = None
+    response_payload: Optional[dict] = None
+    error: Optional[str] = None
+
+
+class AuditEntry(BaseModel):
     timestamp: str
     agent: str
     action: str
-    input_summary: str
-    output_summary: str
-    reasoning: str
-    tool_calls: List[dict]
-    duration_ms: int
+    input_summary: str = ""
+    output_summary: str = ""
+    reasoning: Optional[str] = None
+    tool_calls: list[dict] = Field(default_factory=list)
+    duration_ms: int = 0
 
 
-class MeetingState(TypedDict):
-    # Identity
+class MeetingAgentState(TypedDict):
+    """Full state carried through the LangGraph agent pipeline."""
     meeting_id: str
-    organization_id: str
-    submitted_by: str
-
-    # Input
+    org_id: str
+    user_id: str
+    idempotency_key: str
     raw_input_path: str
-    input_format: str       # txt/vtt/srt/mp3/mp4/wav
-    input_hash: str         # SHA-256 for dedup
-
-    # Processing
-    status: ProcessingStatus
-    transcript_raw: str
-    transcript_turns: List[SpeakerTurn]
-    meeting_metadata: dict  # date, timezone, participants, title
-
-    # Intelligence
-    analysis_plan: List[str]
-    meeting_report: Optional[MeetingReport]
-    action_items: List[ActionItem]
-    verified_items: List[ActionItem]
-    resolved_items: List[ActionItem]
-
-    # Memory
-    related_meeting_ids: List[str]
-    historical_context: str
-    carry_forward_items: List[ActionItem]
-
-    # Approval
-    approval_request_id: Optional[str]
-    approved_items: List[ActionItem]
-    rejected_items: List[ActionItem]
-    edited_items: List[ActionItem]
-
-    # Execution
-    execution_results: List[dict]
-
-    # Audit
-    audit_trail: List[AuditEntry]
-    errors: List[dict]
-
-    # Agent messages (LangGraph native)
-    messages: Annotated[list, add_messages]
+    input_type: Literal["txt", "vtt", "srt", "audio", "video"]
+    meeting_date: str
+    timezone: str
+    participants_hint: list[str]
+    transcript_raw: Optional[str]
+    transcript_segments: list[TranscriptSegment]
+    speakers: list[Speaker]
+    language_detected: str
+    planning_steps: list[str]
+    structured_report: Optional[StructuredReport]
+    action_items: list[ActionItem]
+    verified_items: list[ActionItem]
+    pending_approval: list[ActionItem]
+    approved_items: list[ActionItem]
+    rejected_items: list[ActionItem]
+    approval_session_id: Optional[str]
+    execution_results: list[ExecutionResult]
+    current_phase: str
+    errors: Annotated[list[str], operator.add]
+    warnings: Annotated[list[str], operator.add]
+    audit_log: Annotated[list[AuditEntry], operator.add]
+    related_meetings: list[str]
+    recurring_owners: dict[str, Any]
+    overdue_followups: list[dict]

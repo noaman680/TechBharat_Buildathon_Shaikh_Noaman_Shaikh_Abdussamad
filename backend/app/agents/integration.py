@@ -1,43 +1,64 @@
-"""Agent 11: Integration — execute approved actions in external systems, safely."""
-from app.agents.state import MeetingState
-from app.db import db
-from app.memory.redis_client import redis
+"""Agent 11: Integration Execution — create tasks in external systems."""
+import time
+import structlog
+
+from app.agents.state import MeetingAgentState, ExecutionResult, AuditEntry
 from app.integrations.registry import IntegrationRegistry
-from app.integrations.base import IntegrationError
-import logging
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
-async def integration_agent(state: MeetingState) -> MeetingState:
-    """
-    For each approved action item:
-    1. Look up the user's configured integrations.
-    2. Check the idempotency key before executing.
-    3. Execute (payload preview already shown to the human before this runs).
-    4. Record the API response.
-    5. Handle failures gracefully — never partial-execute silently.
-    """
+async def integration_node(state: MeetingAgentState) -> dict:
+    """Execute approved action items in configured integrations."""
+    start = time.perf_counter()
+    approved = state["approved_items"]
+    registry = IntegrationRegistry()
     results = []
-    approved = state["approved_items"] + state["edited_items"]
+    warnings = []
 
     for item in approved:
-        idem_key = f"task:{state['meeting_id']}:{item['fingerprint']}"
-        if await redis.exists(idem_key):
-            results.append({"item_id": item["id"], "status": "skipped_duplicate"})
+        integration_name = item.target_integration
+        integration = registry.get(integration_name)
+
+        if not integration:
+            warnings.append(f"Integration '{integration_name}' not configured — skipping '{item.title}'")
+            results.append(ExecutionResult(
+                action_item_id=item.id,
+                integration=integration_name,
+                status="skipped",
+                error="Integration not configured",
+            ))
             continue
 
-        integration_config = await db.integrations.get_for_org(
-            state["organization_id"], item.get("preferred_integration")
-        )
-
         try:
-            result = await IntegrationRegistry.execute(item, integration_config)
-            await redis.setex(idem_key, 86400 * 30, result["external_id"])
-            results.append({"item_id": item["id"], "status": "success", **result})
+            logger.info("Creating task", integration=integration_name, title=item.title)
+            result = await integration.create_task(item, {})
+            item.external_ref = {integration_name: result.external_id}
+            item.status = "executed"
+            results.append(result)
+        except Exception as e:
+            logger.error("Integration failed", integration=integration_name, error=str(e))
+            results.append(ExecutionResult(
+                action_item_id=item.id,
+                integration=integration_name,
+                status="failed",
+                error=str(e),
+            ))
 
-        except IntegrationError as e:
-            results.append({"item_id": item["id"], "status": "failed", "error": str(e)})
-            logger.error("Integration failed for %s: %s", item["id"], e)
+    success = sum(1 for r in results if r.status == "success")
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    audit = AuditEntry(
+        timestamp=__import__("datetime").datetime.utcnow().isoformat(),
+        agent="IntegrationAgent",
+        action="execute_integrations",
+        output_summary=f"success={success}, failed={len(results)-success}",
+        duration_ms=duration_ms,
+    )
 
-    return {**state, "execution_results": results}
+    return {
+        "execution_results": results,
+        "approved_items": approved,
+        "warnings": warnings,
+        "current_phase": "executed",
+        "audit_log": [audit],
+    }

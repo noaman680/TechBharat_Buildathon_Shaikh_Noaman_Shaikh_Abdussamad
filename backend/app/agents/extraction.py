@@ -1,47 +1,139 @@
-"""Agent 5: Extraction — pull decisions, tasks, risks, and questions out of the transcript."""
+"""Agent 5: Core extraction — action items, decisions, risks using GPT-4o."""
+import time
+import json
 import hashlib
+import structlog
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
 
-from app.agents.state import MeetingState
-from app.clients.claude import claude_client
-from app.prompts.extraction import EXTRACTION_PROMPT
-from app.utils.transcript import format_transcript_for_extraction
-from app.utils.parsing import parse_extraction_response
+from app.agents.state import (
+    MeetingAgentState, ActionItem, Decision, Risk,
+    StructuredReport, AuditEntry,
+)
+from app.config import settings
+from app.prompts.extraction import EXTRACTION_SYSTEM_PROMPT
+
+logger = structlog.get_logger()
 
 
-async def extraction_agent(state: MeetingState) -> MeetingState:
-    formatted = format_transcript_for_extraction(state["transcript_turns"])
+def format_transcript_for_extraction(state: MeetingAgentState) -> str:
+    """Format segments with speaker labels and timestamps."""
+    speakers = {s.id: s.resolved_name or s.label for s in state.get("speakers", [])}
+    lines = []
+    for seg in state.get("transcript_segments", []):
+        speaker = speakers.get(seg.speaker_id, seg.speaker_id)
+        lines.append(f"[{seg.timestamp_label}] {speaker}: {seg.text}")
+    return "\n".join(lines) if lines else state.get("transcript_raw", "")
 
-    response = await claude_client.messages.create(
-        model="claude-sonnet-4-6",
-        messages=[{"role": "user", "content": EXTRACTION_PROMPT.format(
-            transcript=formatted,
-            meeting_date=state["meeting_metadata"]["date"],
-            participants=state["meeting_metadata"].get("participants", []),
-            plan=state["analysis_plan"],
-        )}],
-        max_tokens=4000,
+
+def compute_fingerprint(owner: str, title: str, due_date: str) -> str:
+    core = f"{owner.lower().strip()}::{title.lower().strip()}::{due_date.lower().strip()}"
+    return hashlib.sha256(core.encode()).hexdigest()[:16]
+
+
+async def extraction_node(state: MeetingAgentState) -> dict:
+    """Extract all action items, decisions, risks from the transcript."""
+    start = time.perf_counter()
+    transcript = format_transcript_for_extraction(state)
+
+    llm = ChatOpenAI(
+        model=settings.openai_model,
+        temperature=0,
+        response_format={"type": "json_object"},
     )
 
-    extracted = parse_extraction_response(response.content[0].text)
+    prompt = (
+        f"Meeting Date: {state['meeting_date']}\n"
+        f"Timezone: {state['timezone']}\n"
+        f"Participants: {state.get('participants_hint', [])}\n\n"
+        f"Transcript:\n{transcript[:12000]}"
+    )
 
-    # Assign fingerprints for deduplication
-    for item in extracted["action_items"]:
-        item["fingerprint"] = generate_fingerprint(item)
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=EXTRACTION_SYSTEM_PROMPT),
+            HumanMessage(content=prompt),
+        ])
+        data = json.loads(response.content)
+    except Exception as e:
+        logger.error("Extraction LLM failed", error=str(e))
+        return {
+            "errors": [f"Extraction failed: {e}"],
+            "action_items": [],
+            "structured_report": StructuredReport(),
+            "current_phase": "extraction_failed",
+        }
+
+    # Parse action items
+    action_items = []
+    for raw in data.get("action_items", []):
+        try:
+            fp = compute_fingerprint(
+                raw.get("owner_raw", ""),
+                raw.get("title", ""),
+                raw.get("due_date_raw", ""),
+            )
+            item = ActionItem(
+                title=raw.get("title", "Untitled"),
+                description=raw.get("description", ""),
+                owner_raw=raw.get("owner_raw", "UNKNOWN"),
+                due_date_raw=raw.get("due_date_raw", ""),
+                priority=raw.get("priority", "medium"),
+                confidence=float(raw.get("confidence", 0.5)),
+                evidence_timestamp=raw.get("evidence_timestamp", ""),
+                evidence_quote=raw.get("evidence_quote", ""),
+                meeting_section=raw.get("meeting_section", ""),
+                dependencies=raw.get("dependencies", []),
+                fingerprint=fp,
+            )
+            action_items.append(item)
+        except Exception as e:
+            logger.warning("Skipped malformed action item", error=str(e))
+
+    # Parse decisions
+    decisions = [
+        Decision(
+            description=d.get("description", ""),
+            made_by=d.get("made_by", []),
+            timestamp=d.get("timestamp", ""),
+            confidence=float(d.get("confidence", 0.7)),
+        )
+        for d in data.get("decisions", [])
+    ]
+
+    # Parse risks
+    risks = [
+        Risk(
+            description=r.get("description", ""),
+            severity=r.get("severity", "medium"),
+            owner=r.get("owner"),
+        )
+        for r in data.get("risks", [])
+    ]
+
+    report = StructuredReport(
+        executive_summary=data.get("executive_summary", ""),
+        decisions=decisions,
+        open_questions=data.get("open_questions", []),
+        risks=risks,
+        dependencies=data.get("dependencies", []),
+        discussion_topics=data.get("discussion_topics", []),
+        key_insights=data.get("key_insights", []),
+        follow_ups=data.get("follow_ups", []),
+    )
+
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    audit = AuditEntry(
+        timestamp=__import__("datetime").datetime.utcnow().isoformat(),
+        agent="ExtractionAgent",
+        action="extract_intelligence",
+        output_summary=f"items={len(action_items)}, decisions={len(decisions)}, risks={len(risks)}",
+        duration_ms=duration_ms,
+    )
 
     return {
-        **state,
-        "action_items": extracted["action_items"],
-        "meeting_report": {
-            "executive_summary": extracted["summary"],
-            "decisions": extracted["decisions"],
-            "open_questions": extracted["open_questions"],
-            "risks": extracted["risks"],
-            "key_insights": extracted["key_insights"],
-        },
+        "action_items": action_items,
+        "structured_report": report,
+        "current_phase": "extracted",
+        "audit_log": [audit],
     }
-
-
-def generate_fingerprint(item: dict) -> str:
-    """Semantic fingerprint for dedup — combines title + owner + due date."""
-    key = f"{item['title'].lower()}|{item['owner_raw'].lower()}|{item['due_date_raw'].lower()}"
-    return hashlib.sha256(key.encode()).hexdigest()[:16]

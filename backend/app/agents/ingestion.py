@@ -1,41 +1,76 @@
-"""Agent 1: Ingestion — normalize input, hash it, and check for duplicates."""
+"""Agent 1: Meeting Ingestion & Validation."""
 import hashlib
-import logging
+import mimetypes
+import time
+from pathlib import Path
 
-from app.agents.state import MeetingState, ProcessingStatus
-from app.db import db
-from app.services.storage import storage
-from app.services.format_detection import detect_format, extract_metadata
+import structlog
 
-logger = logging.getLogger(__name__)
+from app.agents.state import MeetingAgentState, AuditEntry
+
+logger = structlog.get_logger()
+
+SUPPORTED_TEXT = {".txt", ".vtt", ".srt"}
+SUPPORTED_AUDIO = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".webm"}
+SUPPORTED_VIDEO = {".mp4", ".mov", ".mkv", ".avi"}
+MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 
 
-async def ingestion_agent(state: MeetingState) -> MeetingState:
-    """
-    1. Detect input format (txt/vtt/srt/mp3/mp4/wav/webm)
-    2. Compute SHA-256 hash of raw content
-    3. Check PostgreSQL for an existing meeting with the same hash
-    4. Extract metadata (file size, duration, detected language hint)
-    5. Route to transcription or text normalization
-    """
-    content = await storage.read(state["raw_input_path"])
-    input_hash = hashlib.sha256(content).hexdigest()
+async def ingestion_node(state: MeetingAgentState) -> dict:
+    """Validate, classify, and hash the uploaded meeting file."""
+    start = time.perf_counter()
+    path = Path(state["raw_input_path"])
 
-    # Idempotency check — Layer 1 (see docs/BLUEPRINT.md §13)
-    existing = await db.meetings.find_by_hash(input_hash, state["organization_id"])
-    if existing:
-        logger.info("Duplicate detected: %s", existing.meeting_id)
-        return {**state, "status": "duplicate", "meeting_id": existing.meeting_id}
+    if not path.exists():
+        return {
+            "errors": [f"File not found: {path}"],
+            "current_phase": "error",
+        }
 
-    format_info = detect_format(content, state["raw_input_path"])
-    metadata = extract_metadata(content, format_info)
+    file_size = path.stat().st_size
+    if file_size > MAX_FILE_SIZE:
+        return {
+            "errors": [f"File too large: {file_size / 1024 / 1024:.1f}MB (max 500MB)"],
+            "current_phase": "error",
+        }
+
+    ext = path.suffix.lower()
+    if ext in SUPPORTED_TEXT:
+        input_type = ext.lstrip(".")
+    elif ext in SUPPORTED_AUDIO:
+        input_type = "audio"
+    elif ext in SUPPORTED_VIDEO:
+        input_type = "video"
+    else:
+        mime, _ = mimetypes.guess_type(str(path))
+        return {
+            "errors": [f"Unsupported file type: {ext}"],
+            "current_phase": "error",
+        }
+
+    content = path.read_bytes()
+    content_hash = hashlib.sha256(content).hexdigest()
+    idempotency_key = f"{state['org_id']}:{content_hash}"
+
+    # For text files, load transcript immediately
+    transcript_raw = None
+    if input_type in ("txt", "vtt", "srt"):
+        transcript_raw = path.read_text(encoding="utf-8", errors="replace")
+
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    audit = AuditEntry(
+        timestamp=__import__("datetime").datetime.utcnow().isoformat(),
+        agent="IngestionAgent",
+        action="validate_and_classify",
+        input_summary=f"{path.name} ({file_size / 1024:.1f}KB)",
+        output_summary=f"type={input_type}, hash={content_hash[:12]}",
+        duration_ms=duration_ms,
+    )
 
     return {
-        **state,
-        "input_hash": input_hash,
-        "input_format": format_info.type,
-        "meeting_metadata": metadata,
-        "status": ProcessingStatus.TRANSCRIBING
-        if format_info.needs_transcription
-        else ProcessingStatus.ANALYZING,
+        "input_type": input_type,
+        "idempotency_key": idempotency_key,
+        "transcript_raw": transcript_raw,
+        "current_phase": "ingested",
+        "audit_log": [audit],
     }
