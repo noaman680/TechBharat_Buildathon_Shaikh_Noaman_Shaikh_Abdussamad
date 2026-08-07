@@ -19,11 +19,11 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/noaman680/TechBharat_Buildathon_Shaikh_Noaman_Shaikh_Abdussamad/ci.yml?label=CI&style=flat-square)](https://github.com/noaman680/TechBharat_Buildathon_Shaikh_Noaman_Shaikh_Abdussamad/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 <<<<<<< HEAD
-[![TechBharat Buildathon](https://img.shields.io/badge/TechBharat-Buildathon%202025-FF4500?style=flat-square)](https://github.com/noaman680/TechBharat_Buildathon_Shaikh_Noaman_Shaikh_Abdussamad)
+[![TechBharat Buildathon](https://img.shields.io/badge/TechBharat-Buildathon%202026-FF4500?style=flat-square)](https://github.com/noaman680/TechBharat_Buildathon_Shaikh_Noaman_Shaikh_Abdussamad)
 
 <br/>
 
-**Built for TechBharat Buildathon 2025**
+**Built for TechBharat Buildathon 2026**
 **Team: Shaikh Noaman · Shaikh Abdussamad**
 =======
 [![TechBharat Buildathon](https://img.shields.io/badge/TechBharat-Buildathon%202026-FF4500?style=flat-square)](https://github.com/noaman680/TechBharat_Buildathon_Shaikh_Noaman_Shaikh_Abdussamad)
@@ -510,7 +510,7 @@ AI/ML Architecture · LangGraph Pipeline · Agent Design
 <td align="center" width="50%">
 <br/>
 <<<<<<< HEAD
-<b>Shaikh Abdussamad</b>
+<b>Shaikh Noaman</b>
 =======
 <b>Shaikh Noaman</b>
 >>>>>>> 847a4a57e38995b90a47c644fc8895b97f2407ab
@@ -532,7 +532,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 <div align="center">
 
 <<<<<<< HEAD
-**Built with 💙 for TechBharat Buildathon 2025**
+**Built with 💙 for TechBharat Buildathon 2026**
 =======
 **Built with 💙 for TechBharat Buildathon 2026**
 >>>>>>> 847a4a57e38995b90a47c644fc8895b97f2407ab
