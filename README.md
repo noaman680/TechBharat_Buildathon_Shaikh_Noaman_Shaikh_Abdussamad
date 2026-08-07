@@ -22,8 +22,8 @@
 
 <br/>
 
-**Built for TechBharat Buildathon 2025**
-**Team: Shaikh Noaman · Shaikh Abdussamad**
+**Built for TechBharat Buildathon 2026**
+**Team: Shaikh Noaman Shaikh Abdussamad**
 
 <br/>
 
@@ -500,7 +500,7 @@ AI/ML Architecture · LangGraph Pipeline · Agent Design
 </td>
 <td align="center" width="50%">
 <br/>
-<b>Shaikh Abdussamad</b>
+<b>Shaikh Noaman</b>
 <br/>
 Backend API · Integrations · Infrastructure
 <br/>
@@ -518,7 +518,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**Built with 💙 for TechBharat Buildathon 2025**
+**Built with 💙 for TechBharat Buildathon 2026**
 
 *"The best meeting tool is one that makes the meeting disappear — leaving only the work that matters."*
 
