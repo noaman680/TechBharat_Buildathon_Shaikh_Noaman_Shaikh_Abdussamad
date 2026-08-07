@@ -18,7 +18,7 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/noaman680/TechBharat_Buildathon_Shaikh_Noaman_Shaikh_Abdussamad/ci.yml?label=CI&style=flat-square)](https://github.com/noaman680/TechBharat_Buildathon_Shaikh_Noaman_Shaikh_Abdussamad/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-[![TechBharat Buildathon](https://img.shields.io/badge/TechBharat-Buildathon%202025-FF4500?style=flat-square)](https://github.com/noaman680/TechBharat_Buildathon_Shaikh_Noaman_Shaikh_Abdussamad)
+[![TechBharat Buildathon](https://img.shields.io/badge/TechBharat-Buildathon%202026-FF4500?style=flat-square)](https://github.com/noaman680/TechBharat_Buildathon_Shaikh_Noaman_Shaikh_Abdussamad)
 
 <br/>
 
