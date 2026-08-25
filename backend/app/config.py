@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     debug: bool = True
 
     # Database
-    database_url: str = "postgresql+asyncpg://meetmind:meetmind@localhost:5432/meetmind"
+    database_url: str = "sqlite+aiosqlite:///./meetmind.db"
     redis_url: str = "redis://localhost:6379/0"
 
     # AI

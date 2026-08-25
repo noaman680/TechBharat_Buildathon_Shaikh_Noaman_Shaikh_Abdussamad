@@ -36,7 +36,7 @@ async def transcription_node(state: MeetingAgentState) -> dict:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info("Loading Whisper model", device=device)
 
-        model = whisper.load_model("large-v3", device=device)
+        model = whisper.load_model("tiny", device=device)
         result = model.transcribe(
             path,
             language=None,
